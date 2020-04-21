@@ -1,49 +1,3 @@
-# -*- coding: utf-8 -*-
-#
-# BSE: The Bristol Stock Exchange
-#
-# Version 1.3; July 21st, 2018.
-# Version 1.2; November 17th, 2012. 
-#
-# Copyright (c) 2012-2018, Dave Cliff
-#
-#
-# ------------------------
-#
-# MIT Open-Source License:
-# Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
-# associated documentation files (the "Software"), to deal in the Software without restriction,
-# including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
-# and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in all copies or substantial
-# portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
-# LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-# WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-#
-# ------------------------
-#
-#
-#
-# BSE is a very simple simulation of automated execution traders
-# operating on a very simple model of a limit order book (LOB) exchange
-#
-# major simplifications in this version:
-#       (a) only one financial instrument being traded
-#       (b) traders can only trade contracts of size 1 (will add variable quantities later)
-#       (c) each trader can have max of one order per single orderbook.
-#       (d) traders can replace/overwrite earlier orders, and/or can cancel
-#       (d) simply processes each order in sequence and republishes LOB to all traders
-#           => no issues with exchange processing latency/delays or simultaneously issued orders.
-#
-# NB this code has been written to be readable/intelligible, not efficient!
-
-# could import pylab here for graphing etc
 
 import sys
 import math
@@ -331,9 +285,10 @@ class Exchange(Orderbook):
 
         def tape_dump(self, fname, fmode, tmode):
                 dumpfile = open(fname, fmode)
+                dumpfile.write('%s, %s, %s, %s, %s\n' % ('party1', 'party2', 'time', 'price', 'qty'))
                 for tapeitem in self.tape:
                         if tapeitem['type'] == 'Trade' :
-                                dumpfile.write('%s, %s\n' % (tapeitem['time'], tapeitem['price']))
+                                dumpfile.write('%s, %s, %s, %s, %s\n' % (tapeitem['party1'], tapeitem['party2'], tapeitem['time'], tapeitem['price'], tapeitem['qty']))
                 dumpfile.close()
                 if tmode == 'wipe':
                         self.tape = []
@@ -799,34 +754,47 @@ class Trader_ZIP(Trader):
 # between successive calls, but that does make it inefficient as it has to
 # re-analyse the entire set of traders on each call
 def trade_stats(expid, traders, dumpfile, time, lob):
-        trader_types = {}
-        n_traders = len(traders)
+
         for t in traders:
+
+                balance = traders[t].balance
+                blot = traders[t].blotter
+                blot_len = len(blot)
                 ttype = traders[t].ttype
-                if ttype in trader_types.keys():
-                        t_balance = trader_types[ttype]['balance_sum'] + traders[t].balance
-                        n = trader_types[ttype]['n'] + 1
-                else:
-                        t_balance = traders[t].balance
-                        n = 1
-                trader_types[ttype] = {'n':n, 'balance_sum':t_balance}
+                tid = traders[t].tid
+
+                blotterdumpfile.write(
+                        '%s, %s, %s, %s, %s\n' % (sess_id, tid, ttype, balance, blot_len))
+        trader_types = {}
 
 
-        dumpfile.write('%s, %06d, ' % (expid, time))
-        for ttype in sorted(list(trader_types.keys())):
-                n = trader_types[ttype]['n']
-                s = trader_types[ttype]['balance_sum']
-                dumpfile.write('%s, %d, %d, %f, ' % (ttype, s, n, s / float(n)))
-
-        if lob['bids']['best'] != None :
-                dumpfile.write('%d, ' % (lob['bids']['best']))
-        else:
-                dumpfile.write('N, ')
-        if lob['asks']['best'] != None :
-                dumpfile.write('%d, ' % (lob['asks']['best']))
-        else:
-                dumpfile.write('N, ')
-        dumpfile.write('\n');
+        # n_traders = len(traders)
+        # for t in traders:
+        #         ttype = traders[t].ttype
+        #         if ttype in trader_types.keys():
+        #                 t_balance = trader_types[ttype]['balance_sum'] + traders[t].balance
+        #                 n = trader_types[ttype]['n'] + 1
+        #         else:
+        #                 t_balance = traders[t].balance
+        #                 n = 1
+        #         trader_types[ttype] = {'n':n, 'balance_sum':t_balance}
+        #
+        #
+        # dumpfile.write('%s, %06d, ' % (expid, time))
+        # for ttype in sorted(list(trader_types.keys())):
+        #         n = trader_types[ttype]['n']
+        #         s = trader_types[ttype]['balance_sum']
+        #         dumpfile.write('%s, %d, %d, %f, ' % (ttype, s, n, s / float(n)))
+        #
+        # if lob['bids']['best'] != None :
+        #         dumpfile.write('%d, ' % (lob['bids']['best']))
+        # else:
+        #         dumpfile.write('N, ')
+        # if lob['asks']['best'] != None :
+        #         dumpfile.write('%d, ' % (lob['asks']['best']))
+        # else:
+        #         dumpfile.write('N, ')
+        # dumpfile.write('\n');
 
 
 
@@ -930,7 +898,7 @@ def populate_market(traders_spec, traders, shuffle, verbose):
 # the interface on this is a bit of a mess... could do with refactoring
 
 
-def customer_orders(time, last_update, traders, trader_stats, os, pending, verbose):
+def customer_orders(time, last_update, traders, trader_stats, os, pending, verbose, limit_orders):
 
 
         def sysmin_check(price):
@@ -1057,6 +1025,8 @@ def customer_orders(time, last_update, traders, trader_stats, os, pending, verbo
 
         cancellations = []
 
+        max_qty = 1
+
         if len(pending) < 1:
                 # list of pending (to-be-issued) customer orders is empty, so generate a new one
                 new_pending = []
@@ -1070,8 +1040,11 @@ def customer_orders(time, last_update, traders, trader_stats, os, pending, verbo
                         issuetime = time + issuetimes[t]
                         tname = 'B%02d' % t
                         orderprice = getorderprice(t, sched, n_buyers, mode, issuetime)
+                        orderQty = random.randint(1, max_qty)
                         order = Order(tname, ordertype, orderprice, 1, issuetime, -3.14)
                         new_pending.append(order)
+                        limit_orders.write('%s, %s, %s, %s\n' % (tname, issuetime, orderprice, orderQty))
+
                         
                 # supply side (sellers)
                 issuetimes = getissuetimes(n_sellers, os['timemode'], os['interval'], shuffle_times, True)
@@ -1081,8 +1054,10 @@ def customer_orders(time, last_update, traders, trader_stats, os, pending, verbo
                         issuetime = time + issuetimes[t]
                         tname = 'S%02d' % t
                         orderprice = getorderprice(t, sched, n_sellers, mode, issuetime)
+                        orderQty = random.randint(1, max_qty)
                         order = Order(tname, ordertype, orderprice, 1, issuetime, -3.14)
                         new_pending.append(order)
+                        limit_orders.write('%s, %s, %s, %s\n' % (tname, issuetime, orderprice, orderQty))
         else:
                 # there are pending future orders: issue any whose timestamp is in the past
                 new_pending = []
@@ -1105,8 +1080,14 @@ def customer_orders(time, last_update, traders, trader_stats, os, pending, verbo
 
 
 # one session in the market
-def market_session(sess_id, starttime, endtime, trader_spec, order_schedule, dumpfile, dump_each_trade, verbose):
+def market_session(sess_id, starttime, endtime, trader_spec, order_schedule, dump_each_trade, verbose, limitOrders, blotterdumpfile):
 
+
+        limitOrders.write('%s, %s, %s, %s\n' % ('tname', 'issuetime', 'orderprice', 'orderqty'))
+
+        fname = sess_id + 'orderPostings.csv'
+        orderPostings = open(fname, 'w')
+        orderPostings.write('%s, %s, %s, %s, %s\n' % ('tid', 'Otype', 'time', 'orderprice', 'orderqty'))
 
         # initialise the exchange
         exchange = Exchange()
@@ -1147,7 +1128,7 @@ def market_session(sess_id, starttime, endtime, trader_spec, order_schedule, dum
                 trade = None
 
                 [pending_cust_orders, kills] = customer_orders(time, last_update, traders, trader_stats,
-                                                 order_schedule, pending_cust_orders, orders_verbose)
+                                                 order_schedule, pending_cust_orders, orders_verbose, limitOrders)
 
                 # if any newly-issued customer orders mean quotes on the LOB need to be cancelled, kill them
                 if len(kills) > 0 :
@@ -1163,9 +1144,13 @@ def market_session(sess_id, starttime, endtime, trader_spec, order_schedule, dum
                 tid = list(traders.keys())[random.randint(0, len(traders) - 1)]
                 order = traders[tid].getorder(time, time_left, exchange.publish_lob(time, lob_verbose))
 
+
+
                 # if verbose: print('Trader Quote: %s' % (order))
 
                 if order != None:
+                        orderPostings.write(
+                                '%s, %s, %s, %s, %s\n' % (order.tid, order.otype, order.time, order.price, order.qty))
                         if order.otype == 'Ask' and order.price < traders[tid].orders[0].price: sys.exit('Bad ask')
                         if order.otype == 'Bid' and order.price > traders[tid].orders[0].price: sys.exit('Bad bid')
                         # send order to exchange
@@ -1176,7 +1161,7 @@ def market_session(sess_id, starttime, endtime, trader_spec, order_schedule, dum
                                 # so the counterparties update order lists and blotters
                                 traders[trade['party1']].bookkeep(trade, order, bookkeep_verbose, time)
                                 traders[trade['party2']].bookkeep(trade, order, bookkeep_verbose, time)
-                                if dump_each_trade: trade_stats(sess_id, traders, tdump, time, exchange.publish_lob(time, lob_verbose))
+                                # if dump_each_trade: trade_stats(sess_id, traders, dumpfile, time, exchange.publish_lob(time, lob_verbose))
 
                         # traders respond to whatever happened
                         lob = exchange.publish_lob(time, lob_verbose)
@@ -1186,7 +1171,18 @@ def market_session(sess_id, starttime, endtime, trader_spec, order_schedule, dum
                                 # sequence (rather than random/shuffle) isn't a problem
                                 traders[t].respond(time, lob, trade, respond_verbose)
 
+
                 time = time + timestep
+        # for t in traders:
+        #
+        #         balance = traders[t].balance
+        #         blot = traders[t].blotter
+        #         blot_len = len(blot)
+        #         ttype = traders[t].ttype
+        #         tid = traders[t].tid
+        #
+        #         blotterdumpfile.write(
+        #                 '%s, %s, %s, %s, %s\n' % (sess_id, tid, ttype, balance, blot_len))
 
 
         # end of an experiment -- dump the tape
@@ -1194,7 +1190,7 @@ def market_session(sess_id, starttime, endtime, trader_spec, order_schedule, dum
 
 
         # write trade_stats for this experiment NB end-of-session summary only
-        trade_stats(sess_id, traders, tdump, time, exchange.publish_lob(time, lob_verbose))
+        trade_stats(sess_id, traders, blotterdumpfile, time, exchange.publish_lob(time, lob_verbose))
 
 
 
@@ -1205,115 +1201,110 @@ def market_session(sess_id, starttime, endtime, trader_spec, order_schedule, dum
 
 if __name__ == "__main__":
 
-        # set up parameters for the session
-
         start_time = 0.0
-        end_time = 600.0
+        end_time = 180.0  # 80
+
+        # end_time=25200  hours x 60 min x 60 sec /
         duration = end_time - start_time
 
+        # range1 = (95, 95, [bronco_schedule_offsetfn, [] ] )
+        # range1 = (50, 150)
 
-        # schedule_offsetfn returns time-dependent offset on schedule prices
-        def schedule_offsetfn(t):
-                pi2 = math.pi * 2
-                c = math.pi * 3000
-                wavelength = t / c
-                gradient = 100 * t / (c / pi2)
-                amplitude = 100 * t / (c / pi2)
-                offset = gradient + amplitude * math.sin(wavelength * t)
-                return int(round(offset, 0))
-                
-                
+        # range1 = (85,95)
+        # range2 = (85,95)
+        # range3 = (80,90)
+        # range4 = (75,85)
+        # range5 = (70,80)
+        # range6 = (65,75)
+        # range7 = (60,70)
 
-# #        range1 = (10, 190, schedule_offsetfn)
-# #        range2 = (200,300, schedule_offsetfn)
+        # demand flat and supply sloped
 
-# #        supply_schedule = [ {'from':start_time, 'to':duration/3, 'ranges':[range1], 'stepmode':'fixed'},
-# #                            {'from':duration/3, 'to':2*duration/3, 'ranges':[range2], 'stepmode':'fixed'},
-# #                            {'from':2*duration/3, 'to':end_time, 'ranges':[range1], 'stepmode':'fixed'}
-# #                          ]
+        # 4th supply and demand schedule
+        # range1 = (75,75)
+        # range2 = (100,100)
+
+        # 5th supply and demand sched
+        # range1 = (60, 60)
+        # range2 = (100,100)
+
+        # flat demand
+        # range1 = (90, 100)
+        # range2 = (100,100)
+
+        # flat supply
+        range1 = (75, 125)
+        range2 = (75, 125)
+
+        # symmetric supply and demand
+        # range1 = (90,110)
+        # range2 = (90,110)
+
+        # supply flat and demand sloped
+
+        # range1 = (110,110)
+        # range2 = (75,125)
+        #
+        #
+        # #supply dies demand shoots
+        # range1 = (120,120)
+        # range2 = (10,10)
+        #
+        # range3 = (80,80)
+        # range4 = (1000,1000)
+
+        # range3 = (65, 115)
+        # range4 = (55, 105)
+        # range5 = (45, 95)
+        # range6 = (35, 85)
+        # range7 = (25,75)
+        # range8 = (15, 65)
+
+        # , range2, range3, range4, range5, range6, range7
+        # range1 = [75,125]
+
+        supply_schedule = [{'from': start_time, 'to': end_time, 'ranges': [range1], 'stepmode': 'fixed'}]
+
+        # range1 = (105, 105, [bronco_schedule_offsetfn, [] ] )
+        # range1 = (50, 150)
+        # range1 = (75, 125)
+        demand_schedule = [{'from': start_time, 'to': end_time, 'ranges': [range2], 'stepmode': 'fixed'}]
+
+        order_sched = {'sup': supply_schedule, 'dem': demand_schedule,
+                       'interval': 30,
+                       # 'timemode': 'drip-poisson'}
+                       'timemode': 'periodic'}
+
+        # buyers_spec = [('QSHV', 10), ('SHVR',2)]
+
+        buyers_spec = [('ZIP', 10)]
+        sellers_spec = buyers_spec
+        traders_spec = {'sellers': sellers_spec, 'buyers': buyers_spec}
+
+        sys.stdout.flush()
+
+        sess_id = 00
 
 
+        for session in range(1):
+                sess_id = 'Test%02d' % session
+                print('Session %s; ' % sess_id)
 
-        range1 = (95, 95, schedule_offsetfn)
-        supply_schedule = [ {'from':start_time, 'to':end_time, 'ranges':[range1], 'stepmode':'fixed'}
-                          ]
+                fname = sess_id + 'blotterDumpFile.csv'
+                blotterdumpfile = open(fname, 'w')
+                blotterdumpfile.write('%s, %s, %s, %s, %s\n' % ('sess_id', 'tid', 'ttype', 'balance', 'blot_len'))
 
-        range1 = (105, 105, schedule_offsetfn)
-        demand_schedule = [ {'from':start_time, 'to':end_time, 'ranges':[range1], 'stepmode':'fixed'}
-                          ]
+                fname = sess_id + 'limitOrders.csv'
+                limitOrders = open(fname, 'w')
 
-        order_sched = {'sup':supply_schedule, 'dem':demand_schedule,
-                       'interval':30, 'timemode':'drip-poisson'}
-
-# #        buyers_spec = [('GVWY',10),('SHVR',10),('ZIC',10),('ZIP',10)]
-# #        sellers_spec = buyers_spec
-# #        traders_spec = {'sellers':sellers_spec, 'buyers':buyers_spec}
-# #
-# #        # run a sequence of trials, one session per trial
-# #
-# #        n_trials = 1
-# #        tdump=open('avg_balance.csv','w')
-# #        trial = 1
-# #        if n_trials > 1:
-# #                dump_all = False
-# #        else:
-# #                dump_all = True
-# #                
-# #        while (trial<(n_trials+1)):
-# #                trial_id = 'trial%04d' % trial
-# #                market_session(trial_id, start_time, end_time, traders_spec, order_sched, tdump, dump_all)
-# #                tdump.flush()
-# #                trial = trial + 1
-# #        tdump.close()
-# #
-# #        sys.exit('Done Now')
+                # fname = sess_id + 'balances.csv'
+                # summary_data_file = open(fname, 'w')
+                # summary_data_file.write('%s, %s, %s, %s, %s, %s, %s, %s\n' % ('testname', 'time', 'trader type', 'sum balance', 'number of traders', 'profit per trader', 'best bid', 'best ask'))
 
 
-        
+                market_session(sess_id, start_time, end_time, traders_spec, order_sched, True, True, limitOrders, blotterdumpfile)
 
-        # run a sequence of trials that exhaustively varies the ratio of four trader types
-        # NB this has weakness of symmetric proportions on buyers/sellers -- combinatorics of varying that are quite nasty
-        
 
-        n_trader_types = 4
-        equal_ratio_n = 4
-        n_trials_per_ratio = 50
-
-        n_traders = n_trader_types * equal_ratio_n
-
-        fname = 'balances_%03d.csv' % equal_ratio_n
-
-        tdump = open(fname, 'w')
-
-        min_n = 1
-
-        trialnumber = 1
-        trdr_1_n = min_n
-        while trdr_1_n <= n_traders:
-                trdr_2_n = min_n 
-                while trdr_2_n <= n_traders - trdr_1_n:
-                        trdr_3_n = min_n
-                        while trdr_3_n <= n_traders - (trdr_1_n + trdr_2_n):
-                                trdr_4_n = n_traders - (trdr_1_n + trdr_2_n + trdr_3_n)
-                                if trdr_4_n >= min_n:
-                                        buyers_spec = [('GVWY', trdr_1_n), ('SHVR', trdr_2_n),
-                                                       ('ZIC', trdr_3_n), ('ZIP', trdr_4_n)]
-                                        sellers_spec = buyers_spec
-                                        traders_spec = {'sellers':sellers_spec, 'buyers':buyers_spec}
-                                        # print buyers_spec
-                                        trial = 1
-                                        while trial <= n_trials_per_ratio:
-                                                trial_id = 'trial%07d' % trialnumber
-                                                market_session(trial_id, start_time, end_time, traders_spec,
-                                                               order_sched, tdump, False, True)
-                                                tdump.flush()
-                                                trial = trial + 1
-                                                trialnumber = trialnumber + 1
-                                trdr_3_n += 1
-                        trdr_2_n += 1
-                trdr_1_n += 1
-        tdump.close()
-        
-        print trialnumber
+        print('\n Experiment Finished')
 
 
