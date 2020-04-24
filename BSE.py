@@ -4,6 +4,7 @@ import math
 import random
 
 from Traders import Trader_ZIP
+from msgClasses import Order
 
 
 bse_sys_minprice = 1  # minimum price in the system, in cents/pennies
@@ -11,21 +12,6 @@ bse_sys_maxprice = 1000  # maximum price in the system, in cents/pennies
 ticksize = 1  # minimum change in price, in cents/pennies
 
 
-
-# an Order/quote has a trader id, a type (buy/sell) price, quantity, timestamp, and unique i.d.
-class Order:
-
-        def __init__(self, tid, otype, price, qty, time, qid):
-                self.tid = tid      # trader i.d.
-                self.otype = otype  # order type
-                self.price = price  # price
-                self.qty = qty      # quantity
-                self.time = time    # timestamp
-                self.qid = qid      # quote i.d. (unique to each quote)
-
-        def __str__(self):
-                return '[%s %s P=%03d Q=%s T=%5.2f QID:%d]' % \
-                       (self.tid, self.otype, self.price, self.qty, self.time, self.qid)
 
 
 
@@ -712,7 +698,8 @@ def market_session(sess_id, starttime, endtime, trader_spec, order_schedule, dum
 
                 # get a limit-order quote (or None) from a randomly chosen trader
                 tid = list(traders.keys())[random.randint(0, len(traders) - 1)]
-                order = traders[tid].getorder(time, time_left, exchange.publish_lob(time, lob_verbose))
+                print('traders' + str(traders))
+                order = traders[tid].getorder(time, time_left, exchange.publish_lob(time, lob_verbose), True)
 
 
 
@@ -847,7 +834,7 @@ if __name__ == "__main__":
 
         # buyers_spec = [('QSHV', 10), ('SHVR',2)]
 
-        buyers_spec = [('ZIP', 10)]
+        buyers_spec = [('ZIP', 5)]
         sellers_spec = buyers_spec
         traders_spec = {'sellers': sellers_spec, 'buyers': buyers_spec}
 

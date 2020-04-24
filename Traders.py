@@ -1,5 +1,7 @@
 import random
 
+from msgClasses import Order
+
 # Trader superclass
 # all Traders have a trader id, bank balance, blotter, and list of orders to execute
 class Trader:
@@ -133,8 +135,7 @@ class Trader_ZIP(Trader):
     def ordersize(self):
         self.orders[0].qty
 
-    def getorder(self, time, countdown, lob, timing_element, tid, verbose, midprice, Auctiontime, timelist,
-                 newordertime, ordertime):
+    def getorder(self, time, countdown, lob, verbose):
 
         if verbose: print('ZIP getorder(): LOB=%s' % lob)
 
@@ -151,7 +152,7 @@ class Trader_ZIP(Trader):
             self.active = True
             self.limit = self.orders[0].price
             self.limitprice = self.orders[0].price
-            self.job = self.orders[0].atype
+            self.job = self.orders[0].otype
             if self.job == 'Bid':
                 # currently a buyer (working a bid order)
                 self.margin = self.margin_buy
@@ -187,7 +188,7 @@ class Trader_ZIP(Trader):
             #         print("dont change last quote")
             # else:
 
-            order = Order(self.tid, self.job, "LIM", quoteprice, self.orders[0].qty, time, None, -1, False)
+            order = Order(self.tid, self.orders[0].otype, quoteprice, self.orders[0].qty, time, -1)
             self.price = quoteprice
             self.lastquote = order
 
@@ -203,7 +204,7 @@ class Trader_ZIP(Trader):
             return False
 
     # update margin on basis of what happened in market
-    def respond(self, time, lob, trade, trader_values, verbose):
+    def respond(self, time, lob, trade, verbose):
         # ZIP trader responds to market events, altering its margin
         # does this whether it currently has an order to work or not
 
@@ -403,8 +404,8 @@ class Trader_ZIP(Trader):
         # new in this version:
         # take account of LOB's microprice if it is defined (if not, use trade['price'] as before)
 
-        midp = lob['midprice']
-        microp = lob['microprice']
+        # midp = lob['midprice']
+        # microp = lob['microprice']
 
         target_price = None  # default assumption
 
@@ -418,9 +419,7 @@ class Trader_ZIP(Trader):
             if deal:
                 if verbose: print ('trade', trade)
                 tradeprice = trade['price']  # price of most recent transaction
-                print('tradeprice=%s lob[microprice]=%s' % (tradeprice, lob['microprice']))
-                shadetrade = microshade(lob['microprice'], tradeprice)  # shadeprice currently just equals the price
-                refprice = shadetrade
+                refprice = tradeprice
 
                 if self.price <= tradeprice:
                     # could sell for more? raise margin
@@ -434,8 +433,6 @@ class Trader_ZIP(Trader):
                     profit_alter(target_price)
             else:
                 # no deal: aim for a target price higher than best bid
-                print('lob_best_bid_p=%s lob[microprice]=%s' % (lob_best_bid_p, lob['microprice']))
-                refprice = microshade(lob['microprice'], lob_best_bid_p)
 
                 if ask_improved and self.price > lob_best_bid_p:
                     if lob_best_bid_p != None:
@@ -456,12 +453,11 @@ class Trader_ZIP(Trader):
             # buyer
             if deal:
                 tradeprice = trade['price']
-                shadetrade = microshade(lob['microprice'], tradeprice)
-                refprice = shadetrade
+                refprice = tradeprice
 
-                if lob['microprice'] != None and lob['midprice'] != None:
-                    delta = lob['microprice'] - lob['midprice']
-                    # refprice = refprice + delta
+                # if lob['microprice'] != None and lob['midprice'] != None:
+                #     delta = lob['microprice'] - lob['midprice']
+                #     # refprice = refprice + delta
 
                 if self.price >= tradeprice:
                     # could buy for less? raise margin (i.e. cut the price)
@@ -478,7 +474,6 @@ class Trader_ZIP(Trader):
                     profit_alter(target_price)
             else:
                 # no deal: aim for target price lower than best ask
-                refprice = microshade(lob['microprice'], lob_best_ask_p)
                 if bid_improved and self.price < lob_best_ask_p:
                     if lob_best_ask_p != None:
                         target_price = target_down(lob_best_ask_p)
@@ -493,11 +488,6 @@ class Trader_ZIP(Trader):
                         print('PA2: tp=%s' % target_price)
 
                         profit_alter(target_price)
-
-        trader_values.write('%s, %s,%s, %s, %s, %s,%s, %s\n' % (
-        self.tid, time, target_price, self.margin, self.limit, self.price, price_before, price_beforee))
-
-        print('time,%f,>>>,microprice,%s,>>>,target_price,%s' % (time, lob['microprice'], target_price))
 
         # remember the best LOB data ready for next response
         self.prev_best_bid_p = lob_best_bid_p
